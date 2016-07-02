@@ -4672,7 +4672,6 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 			if (rc)
 				pr_err("Couldn't set health on usb psy rc:%d\n",
 					rc);
-			schedule_work(&chip->usb_set_online_work);
 		}
 	}
 }
@@ -5178,7 +5177,6 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 			rc = smbchg_set_usb_current_max(chip, CURRENT_150_MA);
 			if (rc)
 				pr_err("could not set current 150mA : %d", rc);
-			schedule_work(&chip->usb_set_online_work);
 		}
 		pr_smb(PR_MISC, "setting usb psy health UNSPEC_FAILURE\n");
 		rc = power_supply_set_health_state(chip->usb_psy,
@@ -5545,14 +5543,11 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 	}
 
 	/*
-	 * Do not force using current from the register i.e. use auto
-	 * power source detect (APSD) mA ratings for the initial current values.
-	 *
-	 * If this is set, AICL will not rerun at 9V for HVDCPs
+	 * force using current from the register i.e. ignore auto
+	 * power source detect (APSD) mA ratings
 	 */
 	rc = smbchg_masked_write(chip, chip->usb_chgpth_base + CMD_IL,
-			USE_REGISTER_FOR_CURRENT, 0);
-
+			USE_REGISTER_FOR_CURRENT, USE_REGISTER_FOR_CURRENT);
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't set input limit cmd rc=%d\n", rc);
 		return rc;
