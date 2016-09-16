@@ -169,7 +169,8 @@ void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static int mdss_dsi_panel_hbm_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+
+static void mdss_dsi_panel_apply_settings(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_panel_cmds *pcmds)
 {
 	struct dcs_cmd_req cmdreq;
@@ -177,20 +178,19 @@ static int mdss_dsi_panel_hbm_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	pinfo = &(ctrl->panel_data.panel_info);
 	if (pinfo->dcs_cmd_by_left) {
-		if (ctrl->ndx != DSI_CTRL_LEFT)
-			return -EINVAL;
+		if (ctrl->ndx != DSI_CTRL_LEFT) {
+		      return;
+		}
 	}
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = pcmds->cmds;
 	cmdreq.cmds_cnt = pcmds->cmd_cnt;
-	cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_HS_MODE;
+	cmdreq.flags = CMD_REQ_COMMIT; // | CMD_CLK_CTRL | CMD_REQ_HS_MODE | CMD_REQ_DMA_TPG;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
-
-	return 0;
 }
 
 static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
@@ -546,6 +546,34 @@ end:
 	return 0;
 }
 
+static int mdss_dsi_panel_apply_display_setting(struct mdss_panel_data *pdata,
+							u32 mode)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct dsi_panel_cmds *lp_on_cmds;
+	struct dsi_panel_cmds *lp_off_cmds;
+
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	lp_on_cmds = &ctrl->lp_on_cmds;
+	lp_off_cmds = &ctrl->lp_off_cmds;
+
+	// Apply display settings for low-persistence mode
+	if ((mode & DISPLAY_LOW_PERSISTENCE_MASK) && (lp_on_cmds->cmd_cnt)) {
+		mdss_dsi_panel_apply_settings(ctrl, lp_on_cmds);
+	} else if (lp_off_cmds->cmd_cnt){
+		mdss_dsi_panel_apply_settings(ctrl, lp_off_cmds);
+	}
+
+	return 0;
+}
+
 static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 							int mode)
 {
@@ -647,6 +675,9 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
 	}
+
+	/* Ensure low persistence is disabled */
+	mdss_dsi_panel_apply_display_setting(pdata, 0);
 
 	pinfo = &pdata->panel_info;
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
@@ -1900,6 +1931,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	
 	mdss_livedisplay_parse_dt(np, pinfo);
 
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->lp_off_cmds,
+		"qcom,mdss-dsi-lp-mode-off", NULL);
+
 	return 0;
 
 error:
@@ -1950,6 +1984,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
+        ctrl_pdata->panel_data.apply_display_setting = mdss_dsi_panel_apply_display_setting;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
 	ctrl_pdata->set_hbm = mdss_dsi_panel_set_hbm;
 
